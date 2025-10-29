@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>倒數計時</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: Arial, sans-serif;
+      background: #111;
+      color: white;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    #setup {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 20px;
+      padding: 20px;
+    }
+    input {
+      padding: 15px;
+      font-size: 24px;
+      width: 200px;
+      text-align: center;
+      border-radius: 10px;
+      border: none;
+      background: #333;
+      color: white;
+    }
+    button {
+      padding: 15px 30px;
+      font-size: 20px;
+      background: #ff9800;
+      color: white;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: transform 0.1s;
+    }
+    button:active { transform: scale(0.95); }
+
+    #hourglass {
+      flex: 1;
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+
+    .page-container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      transition: transform 0.6s ease-in-out;
+      transform-origin: center;
+      position: relative;
+    }
+
+    .page-container.flipped {
+      transform: rotate(180deg);
+    }
+
+    @keyframes flip-shake {
+      0%, 100% { transform: rotate(0deg); }
+      20% { transform: rotate(8deg); }
+      40% { transform: rotate(-6deg); }
+      60% { transform: rotate(5deg); }
+      80% { transform: rotate(-3deg); }
+    }
+    .page-container.flipping {
+      animation: flip-shake 0.5s ease-in-out;
+    }
+
+    .sand-container {
+      width: 200px;
+      height: 340px;
+      position: relative;
+      border: 4px solid rgba(255,255,255,0.2);
+      border-radius: 20px;
+      background: rgba(255,255,255,0.05);
+      overflow: hidden;
+      clip-path: polygon(0% 0%, 100% 0%, 70% 50%, 100% 100%, 0% 100%, 30% 50%);
+    }
+
+    #sandTop, #sandBottom {
+      position: absolute;
+      width: 100%;
+      background: linear-gradient(135deg, #f4c266 0%, #e69500 100%);
+      box-shadow: inset 0 0 20px rgba(0,0,0,0.3);
+      transition: height 0.5s ease-out;
+    }
+    #sandTop { top: 0; height: 50%; }
+    #sandBottom { bottom: 0; height: 0%; }
+
+    /* 沙粒動畫：根據翻轉切換方向 */
+    @keyframes fall-normal {
+      0% { transform: translateY(0); opacity: 1; }
+      100% { transform: translateY(160px); opacity: 0; }
+    }
+    @keyframes fall-flipped {
+      0% { transform: translateY(0); opacity: 1; }
+      100% { transform: translateY(160px); opacity: 0; }
+    }
+
+    .grain {
+      position: absolute;
+      width: 3px;
+      height: 3px;
+      background: #f4c266;
+      border-radius: 50%;
+      box-shadow: 0 0 4px #ff9800;
+      pointer-events: none;
+      left: 50%;
+      top: 48%;
+      transform: translateX(-50%);
+    }
+
+    .timer-text {
+      font-size: 32px;
+      font-weight: bold;
+      margin: 15px 0;
+      text-shadow: 0 0 12px #ff9800;
+    }
+
+    .bottom-hint {
+      opacity: 0.7;
+      font-size: 16px;
+      margin-top: 10px;
+    }
+
+    .alert {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.95);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      z-index: 100;
+      backdrop-filter: blur(5px);
+    }
+    .alert.show { display: flex; }
+    .alert h2 {
+      font-size: 40px;
+      margin-bottom: 20px;
+      color: #ff9800;
+      text-shadow: 0 0 15px #ff9800;
+    }
+    .alert-btn {
+      margin: 10px;
+      padding: 12px 24px;
+      font-size: 18px;
+      background: #4caf50;
+      color: white;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+    .alert-btn:last-child { background: #666; }
+
+    #debug {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.7);
+      color: lime;
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 14px;
+      z-index: 1000;
+    }
+
+    #flipSound { display: none; }
+  </style>
+</head>
+<body>
+
+  <div id="setup">
+    <h1>倒數計時</h1>
+    <input type="number" id="timeInput" placeholder="秒數" min="1" value="60" />
+    <button onclick="startHourglass()">開始</button>
+  </div>
+
+  <div id="hourglass">
+    <div class="page-container" id="pageContainer">
+      <div class="sand-container" id="sandContainer">
+        <div id="sandTop"></div>
+        <div id="sandBottom"></div>
+      </div>
+      <div class="timer-text" id="timer">00:00</div>
+      <p class="bottom-hint">翻轉手機重新倒數</p>
+
+      <div class="alert" id="alert">
+        <h2>夠鐘</h2>
+        <button onclick="restartTimer()" class="alert-btn">再嚟</button>
+        <button onclick="resetToSetup()" class="alert-btn">重新set</button>
+      </div>
+
+      <div id="debug"></div>
+    </div>
+  </div>
+
+  <audio id="flipSound" src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAA" preload="auto"></audio>
+
+  <script>
+    let totalTime = 60;
+    let remainingTime = 0;
+    let timerInterval = null;
+    let grainInterval = null;
+    let isFlipped = false;
+    let lastBeta = 0;
+    let isTimerFinished = false;
+    let flipTimeout = null;
+
+    const setupPage = document.getElementById('setup');
+    const hourglassPage = document.getElementById('hourglass');
+    const pageContainer = document.getElementById('pageContainer');
+    const sandContainer = document.getElementById('sandContainer');
+    const timerDisplay = document.getElementById('timer');
+    const alertBox = document.getElementById('alert');
+    const debugDiv = document.getElementById('debug');
+    const flipSound = document.getElementById('flipSound');
+
+    function startHourglass() {
+      totalTime = parseInt(document.getElementById('timeInput').value) || 60;
+      if (totalTime < 1) totalTime = 1;
+
+      setupPage.style.display = 'none';
+      hourglassPage.style.display = 'flex';
+
+      remainingTime = totalTime;
+      isTimerFinished = false;
+      isFlipped = false;
+      pageContainer.classList.remove('flipped');
+
+      document.getElementById('sandTop').style.height = '50%';
+      document.getElementById('sandBottom').style.height = '0%';
+
+      startTimer();
+      startGrains();
+      requestOrientationPermission();
+    }
+
+    function startTimer() {
+      updateDisplay();
+      if (timerInterval) clearInterval(timerInterval);
+      timerInterval = setInterval(() => {
+        remainingTime--;
+        updateDisplay();
+        if (remainingTime <= 0) {
+          clearInterval(timerInterval);
+          stopGrains();
+          isTimerFinished = true;
+          showAlert();
+        }
+      }, 1000);
+    }
+
+    function updateDisplay() {
+      const minutes = String(Math.floor(remainingTime / 60)).padStart(2, '0');
+      const seconds = String(remainingTime % 60).padStart(2, '0');
+      timerDisplay.textContent = `${minutes}:${seconds}`;
+
+      const progress = (totalTime - remainingTime) / totalTime;
+      document.getElementById('sandTop').style.height = `${(1 - progress) * 50}%`;
+      document.getElementById('sandBottom').style.height = `${progress * 50}%`;
+    }
+
+    function startGrains() {
+      stopGrains();
+      grainInterval = setInterval(createGrain, 60);
+    }
+
+    function stopGrains() {
+      if (grainInterval) clearInterval(grainInterval);
+      document.querySelectorAll('.grain').forEach(g => g.remove());
+    }
+
+    function createGrain() {
+      if (remainingTime <= 0) return;
+
+      const grain = document.createElement('div');
+      grain.className = 'grain';
+
+      // 隨機水平偏移（相對中心）
+      const offset = (Math.random() - 0.5) * 16;
+      grain.style.left = `calc(50% + ${offset}px)`;
+
+      // 動態選擇動畫
+      if (isFlipped) {
+        grain.style.animation = 'fall-flipped 1s linear forwards';
+      } else {
+        grain.style.animation = 'fall-normal 1s linear forwards';
+      }
+
+      // 隨機持續時間
+      const duration = 0.8 + Math.random() * 0.4;
+      grain.style.animationDuration = `${duration}s`;
+
+      sandContainer.appendChild(grain);
+
+      // 自動移除
+      setTimeout(() => grain.remove(), duration * 1000 + 100);
+    }
+
+    function showAlert() {
+      alertBox.classList.add('show');
+      if ('vibrate' in navigator) {
+        navigator.vibrate([300, 100, 300, 100, 300]);
+      }
+    }
+
+    function restartTimer() {
+      alertBox.classList.remove('show');
+      remainingTime = totalTime;
+      isTimerFinished = false;
+      document.getElementById('sandTop').style.height = '50%';
+      document.getElementById('sandBottom').style.height = '0%';
+      startTimer();
+      startGrains();
+    }
+
+    function resetToSetup() {
+      alertBox.classList.remove('show');
+      setupPage.style.display = 'flex';
+      hourglassPage.style.display = 'none';
+      clearInterval(timerInterval);
+      stopGrains();
+      pageContainer.classList.remove('flipped');
+      isFlipped = false;
+      debugDiv.textContent = '感測器：等待啟動...';
+    }
+
+    function requestOrientationPermission() {
+      if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission()
+          .then(state => {
+            if (state === 'granted') {
+              window.addEventListener('deviceorientation', handleOrientation);
+              //debugDiv.textContent = '感測器：已啟動（iOS）';
+            } else {
+              debugDiv.textContent = '請允許動作權限';
+            }
+          })
+          .catch(() => debugDiv.textContent = '權限請求失敗');
+      } else {
+        window.addEventListener('deviceorientation', handleOrientation);
+        //debugDiv.textContent = '感測器：已啟動（Android）';
+      }
+    }
+
+    function handleOrientation(event) {
+      if (!event.beta) return;
+      const beta = event.beta;
+      //debugDiv.textContent = `角度: ${beta.toFixed(1)}°`;
+	  debugDiv.textContent = `手機已反轉`;
+
+      const wasUpsideDown = lastBeta < -30;
+      const isUpsideDown = beta < -30;
+
+      if ((wasUpsideDown && !isUpsideDown) || (!wasUpsideDown && isUpsideDown)) {
+        flipHourglass();
+      }
+      lastBeta = beta;
+    }
+
+    function flipHourglass() {
+      if (flipTimeout) return;
+      flipTimeout = setTimeout(() => flipTimeout = null, 1000);
+
+      pageContainer.classList.add('flipping');
+      setTimeout(() => pageContainer.classList.remove('flipping'), 500);
+
+      if ('vibrate' in navigator) navigator.vibrate([100, 50, 100]);
+      flipSound.currentTime = 0;
+      flipSound.play().catch(() => {});
+
+      isFlipped = !isFlipped;
+      pageContainer.classList.toggle('flipped');
+      stopGrains();
+      clearInterval(timerInterval);
+
+      setTimeout(() => {
+        if (isTimerFinished) {
+          alertBox.classList.remove('show');
+          isTimerFinished = false;
+        }
+        remainingTime = totalTime;
+        document.getElementById('sandTop').style.height = '50%';
+        document.getElementById('sandBottom').style.height = '0%';
+        startTimer();
+        startGrains(); // 重新啟動，會根據 isFlipped 判斷方向
+      }, 400);
+    }
+
+    window.onload = () => {
+      document.getElementById('timeInput').select();
+    };
+  </script>
+</body>
+</html>
