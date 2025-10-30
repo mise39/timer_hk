@@ -3,7 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#ff9800" />
   <title>倒數計時</title>
+  <link rel="manifest" href="data:application/manifest+json,{
+    \"name\": \"沙漏倒數計時\",
+    \"short_name\": \"沙漏\",
+    \"start_url\": \".\",
+    \"display\": \"standalone\",
+    \"background_color\": \"#111\",
+    \"theme_color\": \"#ff9800\"
+  }">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -107,7 +116,6 @@
     #sandTop { top: 0; height: 50%; }
     #sandBottom { bottom: 0; height: 0%; }
 
-    /* 沙粒動畫：根據翻轉切換方向 */
     @keyframes fall-normal {
       0% { transform: translateY(0); opacity: 1; }
       100% { transform: translateY(160px); opacity: 0; }
@@ -211,7 +219,7 @@
         <button onclick="resetToSetup()" class="alert-btn">重新set</button>
       </div>
 
-      <div id="debug"></div>
+      <div id="debug">感測器：等待啟動...</div>
     </div>
   </div>
 
@@ -226,6 +234,7 @@
     let lastBeta = 0;
     let isTimerFinished = false;
     let flipTimeout = null;
+    let wakeLock = null; // Wake Lock 變數
 
     const setupPage = document.getElementById('setup');
     const hourglassPage = document.getElementById('hourglass');
@@ -236,6 +245,30 @@
     const debugDiv = document.getElementById('debug');
     const flipSound = document.getElementById('flipSound');
 
+    // === Wake Lock 函數 ===
+    async function requestWakeLock() {
+      if ('wakeLock' in navigator) {
+        try {
+          wakeLock = await navigator.wakeLock.request('screen');
+          console.log('螢幕喚醒鎖已啟用');
+          wakeLock.addEventListener('release', () => {
+            console.log('螢幕喚醒鎖已釋放');
+          });
+        } catch (err) {
+          console.error('無法啟用螢幕喚醒鎖:', err);
+        }
+      }
+    }
+
+    function releaseWakeLock() {
+      if (wakeLock !== null) {
+        wakeLock.release();
+        wakeLock = null;
+        console.log('螢幕喚醒鎖已釋放');
+      }
+    }
+
+    // === 主要功能 ===
     function startHourglass() {
       totalTime = parseInt(document.getElementById('timeInput').value) || 60;
       if (totalTime < 1) totalTime = 1;
@@ -254,6 +287,9 @@
       startTimer();
       startGrains();
       requestOrientationPermission();
+
+      // 請求防止休眠
+      requestWakeLock();
     }
 
     function startTimer() {
@@ -297,24 +333,20 @@
       const grain = document.createElement('div');
       grain.className = 'grain';
 
-      // 隨機水平偏移（相對中心）
       const offset = (Math.random() - 0.5) * 16;
       grain.style.left = `calc(50% + ${offset}px)`;
 
-      // 動態選擇動畫
       if (isFlipped) {
         grain.style.animation = 'fall-flipped 1s linear forwards';
       } else {
         grain.style.animation = 'fall-normal 1s linear forwards';
       }
 
-      // 隨機持續時間
       const duration = 0.8 + Math.random() * 0.4;
       grain.style.animationDuration = `${duration}s`;
 
       sandContainer.appendChild(grain);
 
-      // 自動移除
       setTimeout(() => grain.remove(), duration * 1000 + 100);
     }
 
@@ -323,6 +355,7 @@
       if ('vibrate' in navigator) {
         navigator.vibrate([300, 100, 300, 100, 300]);
       }
+      releaseWakeLock(); // 結束時釋放
     }
 
     function restartTimer() {
@@ -333,6 +366,8 @@
       document.getElementById('sandBottom').style.height = '0%';
       startTimer();
       startGrains();
+
+      requestWakeLock(); // 重新開始倒數
     }
 
     function resetToSetup() {
@@ -344,6 +379,8 @@
       pageContainer.classList.remove('flipped');
       isFlipped = false;
       debugDiv.textContent = '感測器：等待啟動...';
+
+      releaseWakeLock(); // 回到設定頁
     }
 
     function requestOrientationPermission() {
@@ -352,7 +389,6 @@
           .then(state => {
             if (state === 'granted') {
               window.addEventListener('deviceorientation', handleOrientation);
-              //debugDiv.textContent = '感測器：已啟動（iOS）';
             } else {
               debugDiv.textContent = '請允許動作權限';
             }
@@ -360,15 +396,13 @@
           .catch(() => debugDiv.textContent = '權限請求失敗');
       } else {
         window.addEventListener('deviceorientation', handleOrientation);
-        //debugDiv.textContent = '感測器：已啟動（Android）';
       }
     }
 
     function handleOrientation(event) {
       if (!event.beta) return;
       const beta = event.beta;
-      //debugDiv.textContent = `角度: ${beta.toFixed(1)}°`;
-	  debugDiv.textContent = `手機已反轉`;
+      debugDiv.textContent = `手機已反轉`;
 
       const wasUpsideDown = lastBeta < -30;
       const isUpsideDown = beta < -30;
@@ -404,7 +438,8 @@
         document.getElementById('sandTop').style.height = '50%';
         document.getElementById('sandBottom').style.height = '0%';
         startTimer();
-        startGrains(); // 重新啟動，會根據 isFlipped 判斷方向
+        startGrains();
+        requestWakeLock(); // 翻轉後重新請求鎖
       }, 400);
     }
 
